@@ -1,0 +1,103 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+
+st.set_page_config(page_title="Student Performance Analyzer", page_icon="📊", layout="wide")
+
+st.title("📊 Student Performance Analyzer")
+st.write("A beginner-friendly Python dashboard to explore student marks and identify learning trends.")
+st.caption("Demo data is included. Upload a CSV with Student_ID, Student_Name, Maths, Science, English, Computer columns to analyze your own data.")
+
+uploaded_file = st.file_uploader("Upload student marks CSV (optional)", type=["csv"])
+if uploaded_file is not None:
+    try:
+        data = pd.read_csv(uploaded_file)
+    except Exception as exc:
+        st.error(f"Could not read this CSV: {exc}")
+        st.stop()
+else:
+    data = pd.read_csv("student_performance.csv")
+
+required = ["Student_ID", "Student_Name", "Maths", "Science", "English", "Computer"]
+missing = [column for column in required if column not in data.columns]
+if missing:
+    st.error("Missing required columns: " + ", ".join(missing))
+    st.info("Please use the sample CSV as a template and keep the required column names.")
+    st.stop()
+
+subjects = ["Maths", "Science", "English", "Computer"]
+for subject in subjects:
+    data[subject] = pd.to_numeric(data[subject], errors="coerce")
+data = data.dropna(subset=subjects).copy()
+if data.empty:
+    st.warning("No valid rows with numeric marks were found.")
+    st.stop()
+
+data["Average"] = data[subjects].mean(axis=1).round(2)
+data["Total"] = data[subjects].sum(axis=1)
+def grade(avg):
+    if avg >= 90: return "A"
+    if avg >= 80: return "B"
+    if avg >= 70: return "C"
+    if avg >= 60: return "D"
+    return "Needs Support"
+data["Grade"] = data["Average"].apply(grade)
+
+min_avg = float(data["Average"].min())
+max_avg = float(data["Average"].max())
+mean_avg = float(data["Average"].mean())
+pass_mark = st.sidebar.slider("Minimum average to highlight", min_value=0, max_value=100, value=60)
+name_filter = st.sidebar.text_input("Search student name")
+view = data.copy()
+if name_filter.strip():
+    view = view[view["Student_Name"].astype(str).str.contains(name_filter.strip(), case=False, na=False)]
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Students", len(view))
+c2.metric("Class average", f"{view['Average'].mean():.1f}" if len(view) else "—")
+c3.metric("Highest average", f"{view['Average'].max():.1f}" if len(view) else "—")
+c4.metric("Below selected mark", int((view["Average"] < pass_mark).sum()) if len(view) else 0)
+
+st.subheader("Student results")
+st.dataframe(view[["Student_ID", "Student_Name"] + subjects + ["Total", "Average", "Grade"]], use_container_width=True)
+
+left, right = st.columns(2)
+with left:
+    st.subheader("Average marks by subject")
+    subject_means = view[subjects].mean().dropna()
+    fig, ax = plt.subplots()
+    subject_means.plot(kind="bar", ax=ax)
+    ax.set_ylabel("Average marks")
+    ax.set_ylim(0, 100)
+    ax.set_title("Subject-wise class average")
+    plt.xticks(rotation=0)
+    st.pyplot(fig)
+    plt.close(fig)
+
+with right:
+    st.subheader("Grade distribution")
+    grade_counts = view["Grade"].value_counts()
+    fig, ax = plt.subplots()
+    if not grade_counts.empty:
+        grade_counts.plot(kind="bar", ax=ax)
+    ax.set_ylabel("Number of students")
+    ax.set_title("Students by performance band")
+    plt.xticks(rotation=20, ha="right")
+    st.pyplot(fig)
+    plt.close(fig)
+
+st.subheader("Students who may need extra support")
+support = view[view["Average"] < pass_mark].sort_values("Average")
+if support.empty:
+    st.success("No students fall below the selected average threshold.")
+else:
+    st.dataframe(support[["Student_ID", "Student_Name", "Average", "Grade"]], use_container_width=True)
+    st.write("Use this list as a discussion aid for offering additional learning support—not as a final judgement about a student.")
+
+st.download_button(
+    "Download analyzed results CSV",
+    data=view.to_csv(index=False).encode("utf-8"),
+    file_name="analyzed_student_results.csv",
+    mime="text/csv",
+)
+st.caption("Academic demo project. The included records are fictional sample data.")
